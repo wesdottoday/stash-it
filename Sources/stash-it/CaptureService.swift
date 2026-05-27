@@ -202,11 +202,13 @@ final class CaptureService {
     ) -> CaptureResult {
         do {
             let dest = try ensureDestination()
+            let attachmentsDir = dest.appendingPathComponent("attachments")
+            try fileManager.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
 
             let baseName = prefs.imageNormalization
                 ? FileNamer.normalizeFilename(fileURL.lastPathComponent)
                 : fileURL.lastPathComponent
-            let copyTarget = FileNamer.uniqueDestination(dest.appendingPathComponent(baseName))
+            let copyTarget = FileNamer.uniqueDestination(attachmentsDir.appendingPathComponent(baseName))
             try fileManager.copyItem(at: fileURL, to: copyTarget)
 
             let timestamp = Date()
@@ -215,7 +217,7 @@ final class CaptureService {
             var bodyText = (urlMatch.map { inlineFirstURL(in: text, match: $0) }) ?? text
             bodyText = ensureTrailingNewline(bodyText)
             let copyName = copyTarget.lastPathComponent
-            bodyText += "\n[\(copyName)](./\(copyName))\n"
+            bodyText += "\n[\(copyName)](attachments/\(copyName))\n"
 
             let tags = HashtagExtractor.extract(from: bodyText)
             let frontMatter = FrontMatterBuilder.build(

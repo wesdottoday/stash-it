@@ -1,5 +1,6 @@
 import Foundation
 import Carbon.HIToolbox
+import ServiceManagement
 
 extension Notification.Name {
     static let hotkeyChanged = Notification.Name("stash.hotkeyChanged")
@@ -82,6 +83,21 @@ final class Preferences {
     var imageNormalization: Bool {
         get { defaults.bool(forKey: Key.imageNormalization) }
         set { defaults.set(newValue, forKey: Key.imageNormalization) }
+    }
+
+    var startAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                // Silent — user can manage via System Settings
+            }
+        }
     }
 
     var menuBarEnabled: Bool {

@@ -56,6 +56,10 @@ struct PreferencesView: View {
                     )
                 }
 
+                Section("General") {
+                    Toggle("Start at login", isOn: $model.startAtLogin)
+                }
+
                 Section("Menu Bar") {
                     Toggle("Show menu bar icon", isOn: $model.menuBarEnabled)
                     if !model.menuBarEnabled {
@@ -112,6 +116,9 @@ final class PreferencesViewModel: ObservableObject {
     @Published var menuBarEnabled: Bool {
         didSet { prefs.menuBarEnabled = menuBarEnabled }
     }
+    @Published var startAtLogin: Bool {
+        didSet { prefs.startAtLogin = startAtLogin }
+    }
 
     init() {
         let p = Preferences.shared
@@ -123,6 +130,7 @@ final class PreferencesViewModel: ObservableObject {
         self.confirmationDuration = p.confirmationDuration
         self.imageNormalization = p.imageNormalization
         self.menuBarEnabled = p.menuBarEnabled
+        self.startAtLogin = p.startAtLogin
     }
 
     func chooseFolder() {
