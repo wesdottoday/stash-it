@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController!
     private var captureWindowController: CaptureWindowController!
     private var preferencesWindowController: PreferencesWindowController!
+    private var externalDefaultsTimer: Timer?
 
     // Cached values used to detect external `defaults write` changes that don't
     // route through Preferences's own setters.
@@ -50,13 +51,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Watch for external `defaults write` calls so CLI changes take effect
-        // without requiring a relaunch.
+        // without requiring a relaunch. UserDefaults.didChangeNotification does
+        // NOT fire for writes via the `defaults` CLI — that writes to the
+        // plist directly and our in-memory cache is unaware until we ask the
+        // system to refresh. Poll every 2 seconds: call synchronize() (still
+        // functional, despite the deprecation warning), then diff.
         snapshotPreferencesForExternalObserver()
-        NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard,
-            queue: .main
+        externalDefaultsTimer = Timer.scheduledTimer(
+            withTimeInterval: 2.0,
+            repeats: true
         ) { [weak self] _ in
+            UserDefaults.standard.synchronize()
             self?.handleExternalDefaultsChange()
         }
 
