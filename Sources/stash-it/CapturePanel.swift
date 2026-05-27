@@ -1,11 +1,11 @@
 import AppKit
+import Carbon.HIToolbox
 
 final class CapturePanel: NSPanel, NSWindowDelegate {
     var onSubmit: ((String) -> Void)?
     var onCancel: (() -> Void)?
     var onMovedByUser: ((NSPoint) -> Void)?
 
-    private let snapshot: PasteboardSnapshot
     private let panelWidth: CGFloat = 620
     private let horizontalPadding: CGFloat = 14
     private let verticalPadding: CGFloat = 12
@@ -15,13 +15,13 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
     private var textView: CaptureTextView!
     private var scrollView: NSScrollView!
     private var hintLabel: NSTextField!
-    private var contextStack: NSStackView!
+    private var warningLabel: NSTextField?
     private var rootStack: NSStackView!
     private var scrollHeightConstraint: NSLayoutConstraint!
+    private var suppressResignDismiss = false
     private var checkmark: NSTextField?
 
-    init(snapshot: PasteboardSnapshot) {
-        self.snapshot = snapshot
+    init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 100),
             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
@@ -94,22 +94,7 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
             rootStack.bottomAnchor.constraint(equalTo: blur.bottomAnchor),
         ])
 
-        contextStack = NSStackView()
-        contextStack.orientation = .vertical
-        contextStack.alignment = .leading
-        contextStack.spacing = 6
-        contextStack.translatesAutoresizingMaskIntoConstraints = false
-
-        buildContextViews(into: contextStack)
-        if !contextStack.arrangedSubviews.isEmpty {
-            rootStack.addArrangedSubview(contextStack)
-            contextStack.widthAnchor.constraint(
-                equalTo: rootStack.widthAnchor,
-                constant: -(horizontalPadding * 2)
-            ).isActive = true
-        }
-
-        // Text input area: scroll view containing a NSTextView, with a hint label overlaid.
+        // Text input area
         let inputContainer = NSView()
         inputContainer.translatesAutoresizingMaskIntoConstraints = false
 
@@ -130,7 +115,7 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         tv.insertionPointColor = .controlAccentColor
         tv.backgroundColor = .clear
         tv.drawsBackground = false
-        tv.textContainerInset = NSSize(width: 4, height: 6)
+        tv.textContainerInset = NSSize(width: 4, height: 10)
         tv.minSize = NSSize(width: 0, height: 0)
         tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         tv.isVerticallyResizable = true
@@ -174,10 +159,8 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
             constant: -(horizontalPadding * 2)
         ).isActive = true
 
-        // Container size
         container.widthAnchor.constraint(equalToConstant: panelWidth).isActive = true
 
-        // Make the text view first responder once attached.
         DispatchQueue.main.async { [weak self] in
             self?.makeFirstResponder(self?.textView)
         }
@@ -185,56 +168,13 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         updatePanelHeight()
     }
 
-    private func buildContextViews(into stack: NSStackView) {
-        switch snapshot.content {
-        case .image(let image, _):
-            let imageView = NSImageView()
-            imageView.image = image
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.imageAlignment = .alignLeft
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            let ratio = max(0.001, image.size.width / max(image.size.height, 1))
-            let height: CGFloat = 90
-            let width = min(panelWidth - horizontalPadding * 2, height * ratio)
-            imageView.widthAnchor.constraint(equalToConstant: width).isActive = true
-            imageView.heightAnchor.constraint(equalToConstant: height).isActive = true
-            imageView.wantsLayer = true
-            imageView.layer?.cornerRadius = 6
-            imageView.layer?.masksToBounds = true
-            stack.addArrangedSubview(imageView)
-
-        case .file(let url):
-            let label = NSTextField(labelWithString: "📎 \(url.lastPathComponent)")
-            label.font = .systemFont(ofSize: 12)
-            label.textColor = .secondaryLabelColor
-            stack.addArrangedSubview(label)
-
-        case .fileOversized(let url, let size):
-            let mb = Double(size) / (1024 * 1024)
-            let msg = String(
-                format: "⚠ File over 100MB skipped: %@ (%.1f MB). You can still type a note.",
-                url.lastPathComponent, mb
-            )
-            let label = NSTextField(labelWithString: msg)
-            label.font = .systemFont(ofSize: 12)
-            label.textColor = .systemOrange
-            label.maximumNumberOfLines = 2
-            label.lineBreakMode = .byWordWrapping
-            label.preferredMaxLayoutWidth = panelWidth - horizontalPadding * 2
-            stack.addArrangedSubview(label)
-
-        default:
-            break
-        }
-    }
-
     // MARK: - Sizing
 
     private func singleLineHeight() -> CGFloat {
         let font = NSFont.systemFont(ofSize: 16)
         let layoutHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
-        // textContainerInset.height * 2 (top + bottom) + line + a little breathing room
-        return layoutHeight + 14
+        // 2 * textContainerInset.height (top + bottom) + line + breathing room
+        return layoutHeight + 22
     }
 
     private func handleTextChange() {
@@ -284,16 +224,51 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         onCancel?()
     }
 
+    // MARK: - Inline warning (oversized file at submit time)
+
+    func showOversizedWarning(filename: String, sizeBytes: Int64) {
+        let mb = Double(sizeBytes) / (1024 * 1024)
+        let msg = String(
+            format: "⚠ File over 100MB skipped: %@ (%.1f MB). Type a note and press ↵, or ⎋ to dismiss.",
+            filename, mb
+        )
+        if let existing = warningLabel {
+            existing.stringValue = msg
+        } else {
+            let label = NSTextField(labelWithString: msg)
+            label.font = .systemFont(ofSize: 12)
+            label.textColor = .systemOrange
+            label.maximumNumberOfLines = 2
+            label.lineBreakMode = .byWordWrapping
+            label.preferredMaxLayoutWidth = panelWidth - horizontalPadding * 2
+            label.translatesAutoresizingMaskIntoConstraints = false
+            rootStack.insertArrangedSubview(label, at: 0)
+            label.widthAnchor.constraint(
+                equalTo: rootStack.widthAnchor,
+                constant: -(horizontalPadding * 2)
+            ).isActive = true
+            warningLabel = label
+        }
+        updatePanelHeight()
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowDidMove(_ notification: Notification) {
         onMovedByUser?(self.frame.origin)
     }
 
+    func windowDidResignKey(_ notification: Notification) {
+        // Click-outside (or app switch) dismisses without saving.
+        guard !suppressResignDismiss else { return }
+        onCancel?()
+    }
+
     // MARK: - Confirmation
 
     func showCheckmark(durationMs: Int, completion: @escaping () -> Void) {
-        // Hide input chrome, show big check.
+        // Suppress resign-dismiss while the checkmark plays and the window orders out.
+        suppressResignDismiss = true
         rootStack.isHidden = true
         let check = NSTextField(labelWithString: "✓")
         check.font = .systemFont(ofSize: 38, weight: .bold)
@@ -316,6 +291,12 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
             completion()
         }
     }
+
+    /// Called when the controller is about to show a sheet on this panel (e.g. NSOpenPanel
+    /// for picking a new destination). Suppresses the resign-key dismiss path.
+    func setSuppressResignDismiss(_ value: Bool) {
+        suppressResignDismiss = value
+    }
 }
 
 final class CaptureTextView: NSTextView {
@@ -323,17 +304,23 @@ final class CaptureTextView: NSTextView {
     var onCancel: (() -> Void)?
     var onTextChange: (() -> Void)?
 
-    override func doCommand(by selector: Selector) {
-        switch selector {
-        case #selector(insertNewline(_:)):
-            onSubmit?()
-        case #selector(insertLineBreak(_:)):
-            insertText("\n", replacementRange: selectedRange())
-        case #selector(cancelOperation(_:)):
+    override func keyDown(with event: NSEvent) {
+        let kc = Int(event.keyCode)
+        switch kc {
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            if event.modifierFlags.contains(.shift) {
+                insertText("\n", replacementRange: selectedRange())
+            } else {
+                onSubmit?()
+            }
+            return
+        case kVK_Escape:
             onCancel?()
+            return
         default:
-            super.doCommand(by: selector)
+            break
         }
+        super.keyDown(with: event)
     }
 
     override func didChangeText() {

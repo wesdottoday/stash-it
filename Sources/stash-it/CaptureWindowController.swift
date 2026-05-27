@@ -3,6 +3,7 @@ import AppKit
 final class CaptureWindowController: NSObject {
     private var panel: CapturePanel?
     private var previousApp: NSRunningApplication?
+    private var sourceAppName: String?
     private(set) var isShowing = false
 
     func toggle() {
@@ -11,16 +12,17 @@ final class CaptureWindowController: NSObject {
     }
 
     private func show() {
-        let snapshot = PasteboardSnapshot.capture()
-        let sourceApp: String? = NSWorkspace.shared.frontmostApplication.flatMap { app in
+        // Capture source-app info before the panel takes focus. The pasteboard
+        // is intentionally NOT captured here — it's read fresh at submit time.
+        sourceAppName = NSWorkspace.shared.frontmostApplication.flatMap { app in
             (app.bundleIdentifier == Bundle.main.bundleIdentifier) ? nil : app.localizedName
         }
         previousApp = NSWorkspace.shared.frontmostApplication
 
-        let panel = CapturePanel(snapshot: snapshot)
+        let panel = CapturePanel()
         panel.onSubmit = { [weak self, weak panel] text in
             guard let self = self, let panel = panel else { return }
-            self.handleSubmit(text: text, snapshot: snapshot, sourceApp: sourceApp, panel: panel)
+            self.handleSubmit(text: text, panel: panel)
         }
         panel.onCancel = { [weak self] in
             self?.dismiss()
@@ -46,38 +48,41 @@ final class CaptureWindowController: NSObject {
             let r = screen.visibleFrame
             let origin = NSPoint(
                 x: r.midX - f.width / 2,
-                y: r.midY - f.height / 2 + r.height * 0.1 // slightly above center
+                y: r.midY - f.height / 2 + r.height * 0.1
             )
             panel.setFrameOrigin(origin)
         }
     }
 
-    private func handleSubmit(
-        text: String,
-        snapshot: PasteboardSnapshot,
-        sourceApp: String?,
-        panel: CapturePanel
-    ) {
+    private func handleSubmit(text: String, panel: CapturePanel) {
         Preferences.shared.windowOrigin = panel.frame.origin
+
+        // Read the clipboard fresh at submit time. The user may have copied
+        // something different (or nothing) since the window opened.
+        let snapshot = PasteboardSnapshot.capture()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Oversized-file + no text: warn in place, keep the panel open so the user
+        // can either type a note (and press Enter again) or hit Escape.
+        if case .fileOversized(let url, let size) = snapshot.content, trimmed.isEmpty {
+            panel.showOversizedWarning(filename: url.lastPathComponent, sizeBytes: size)
+            return
+        }
 
         let result = CaptureService.shared.save(
             userText: text,
             snapshot: snapshot,
-            sourceApp: sourceApp
+            sourceApp: sourceAppName
         )
 
         switch result {
         case .empty:
-            // Nothing typed and nothing usable on the clipboard — just dismiss.
             dismiss()
-
         case .oversized:
-            // Should not reach here: the panel filters submit when oversized + no text.
+            // Defensive — should be handled above.
             dismiss()
-
         case .error(let err):
             handleError(err)
-
         case .success, .imageWriteFailed:
             if Preferences.shared.confirmationEnabled {
                 let dur = Preferences.shared.confirmationDuration
@@ -97,6 +102,7 @@ final class CaptureWindowController: NSObject {
         panel?.orderOut(nil)
         panel = nil
         isShowing = false
+        sourceAppName = nil
 
         if let prev = previousApp {
             prev.activate(options: [])
@@ -105,7 +111,6 @@ final class CaptureWindowController: NSObject {
     }
 
     private func handleError(_ error: Error) {
-        // If destination is missing/unwritable, prompt for a new folder and retry once.
         let nsErr = error as NSError
         if nsErr.domain == NSCocoaErrorDomain {
             promptForNewDestination()
@@ -116,17 +121,19 @@ final class CaptureWindowController: NSObject {
 
     private func promptForNewDestination() {
         guard let panel = panel else { return }
+        panel.setSuppressResignDismiss(true)
         let open = NSOpenPanel()
         open.message = "Choose a destination folder for stash-it"
         open.canChooseFiles = false
         open.canChooseDirectories = true
         open.canCreateDirectories = true
         open.allowsMultipleSelection = false
-        open.beginSheetModal(for: panel) { response in
+        open.beginSheetModal(for: panel) { [weak self, weak panel] response in
             if response == .OK, let url = open.url {
                 Preferences.shared.destinationFolder = url
             }
-            self.dismiss()
+            panel?.setSuppressResignDismiss(false)
+            self?.dismiss()
         }
     }
 }
