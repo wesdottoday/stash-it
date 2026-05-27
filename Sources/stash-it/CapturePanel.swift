@@ -17,6 +17,13 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
     private let interItemSpacing: CGFloat = 10
     private let maxVisibleLines = 6
 
+    // Inset inside the text view and an extra buffer between the rendered
+    // glyph rect and the scroll view's clip bounds. These two constants are
+    // used both for the initial single-line height and the dynamic height
+    // recalculation, so they must stay in sync (see ISSUES.md #2).
+    private let textContainerVerticalInset: CGFloat = 12
+    private let scrollBottomBuffer: CGFloat = 8
+
     private var textView: CaptureTextView!
     private var scrollView: NSScrollView!
     private var hintLabel: NSTextField!
@@ -120,7 +127,7 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         tv.insertionPointColor = .controlAccentColor
         tv.backgroundColor = .clear
         tv.drawsBackground = false
-        tv.textContainerInset = NSSize(width: 4, height: 10)
+        tv.textContainerInset = NSSize(width: 4, height: textContainerVerticalInset)
         tv.minSize = NSSize(width: 0, height: 0)
         tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         tv.isVerticallyResizable = true
@@ -179,8 +186,7 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
     private func singleLineHeight() -> CGFloat {
         let font = NSFont.systemFont(ofSize: 16)
         let layoutHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
-        // 2 * textContainerInset.height (top + bottom) + line + breathing room
-        return layoutHeight + 22
+        return layoutHeight + textContainerVerticalInset * 2 + scrollBottomBuffer
     }
 
     private func handleTextChange() {
@@ -198,7 +204,7 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         let lineCount = max(1, Int(ceil(used.height / max(lineHeight, 1))))
         let visible = min(maxVisibleLines, lineCount)
         let inset = textView.textContainerInset.height * 2
-        let target = CGFloat(visible) * lineHeight + inset + 4
+        let target = CGFloat(visible) * lineHeight + inset + scrollBottomBuffer
         if abs(scrollHeightConstraint.constant - target) > 0.5 {
             scrollHeightConstraint.constant = target
             updatePanelHeight()
