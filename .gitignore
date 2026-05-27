@@ -5,3 +5,4 @@ DerivedData/
 stash-it.app/
 .DS_Store
 Package.resolved
+*.dmg

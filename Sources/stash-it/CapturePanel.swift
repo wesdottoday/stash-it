@@ -91,10 +91,13 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         rootStack.spacing = interItemSpacing
         rootStack.alignment = .leading
         rootStack.distribution = .fill
+        // The panel uses .titled + .fullSizeContentView — the invisible
+        // title bar adds space above the content that doesn't exist below.
+        // Increase bottom inset to match the visual top spacing.
         rootStack.edgeInsets = NSEdgeInsets(
             top: verticalPadding,
             left: horizontalPadding,
-            bottom: verticalPadding,
+            bottom: verticalPadding + 22,
             right: horizontalPadding
         )
         rootStack.translatesAutoresizingMaskIntoConstraints = false
