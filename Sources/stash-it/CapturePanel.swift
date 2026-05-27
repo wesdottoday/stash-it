@@ -6,6 +6,11 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
     var onCancel: (() -> Void)?
     var onMovedByUser: ((NSPoint) -> Void)?
 
+    /// True if the user has invoked the paste command (Cmd+V or Edit menu)
+    /// at any point during this capture session. Used to gate whether
+    /// clipboard content should be attached to the saved note.
+    private(set) var userDidPaste: Bool = false
+
     private let panelWidth: CGFloat = 620
     private let horizontalPadding: CGFloat = 14
     private let verticalPadding: CGFloat = 12
@@ -129,6 +134,7 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
         tv.onSubmit = { [weak self] in self?.submit() }
         tv.onCancel = { [weak self] in self?.cancel() }
         tv.onTextChange = { [weak self] in self?.handleTextChange() }
+        tv.onPaste = { [weak self] in self?.userDidPaste = true }
         textView = tv
         scrollView.documentView = tv
         inputContainer.addSubview(scrollView)
@@ -303,6 +309,17 @@ final class CaptureTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
     var onTextChange: (() -> Void)?
+    var onPaste: (() -> Void)?
+
+    override func paste(_ sender: Any?) {
+        onPaste?()
+        super.paste(sender)
+    }
+
+    override func pasteAsPlainText(_ sender: Any?) {
+        onPaste?()
+        super.pasteAsPlainText(sender)
+    }
 
     override func keyDown(with event: NSEvent) {
         let kc = Int(event.keyCode)

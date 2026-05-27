@@ -57,9 +57,14 @@ final class CaptureWindowController: NSObject {
     private func handleSubmit(text: String, panel: CapturePanel) {
         Preferences.shared.windowOrigin = panel.frame.origin
 
-        // Read the clipboard fresh at submit time. The user may have copied
-        // something different (or nothing) since the window opened.
-        let snapshot = PasteboardSnapshot.capture()
+        // Only treat the clipboard as content the user intends to attach if they
+        // actually pressed Cmd+V during this capture. Otherwise a stale image/file
+        // sitting on the clipboard would silently get saved alongside a plain
+        // text note. See ISSUES.md #1.
+        let snapshot: PasteboardSnapshot = panel.userDidPaste
+            ? PasteboardSnapshot.capture()
+            : PasteboardSnapshot(content: .empty)
+
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Oversized-file + no text: warn in place, keep the panel open so the user
