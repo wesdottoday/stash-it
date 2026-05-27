@@ -13,6 +13,23 @@ stash-it eliminates the friction between "I want to keep this" and "it's on disk
 - Text and URLs become markdown files with YAML front matter
 - Images and files drop as bare files unless accompanied by text
 
+## Install
+
+**Requires macOS 13 (Ventura) or later.**
+
+### Download
+
+Grab the latest DMG from [Releases](https://github.com/wesdottoday/stash-it/releases), open it, and drag stash-it.app to Applications.
+
+### Build from source
+
+```bash
+git clone https://github.com/wesdottoday/stash-it.git
+cd stash-it
+make build
+make install   # copies to /Applications
+```
+
 ## Configuration
 
 All preferences are accessible via the menu bar dropdown or the command line:
